@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
+const jwt = require('jsonwebtoken')
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -10,6 +11,22 @@ app.use(cors());
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster1.some2ew.mongodb.net/?retryWrites=true&w=majority`;
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if(!authorization){
+    return res.status(401).send({error: true, message: 'Unauthorized Access'})
+  }
+  const token = authorization.split(' ')[1];
+  jwt.verify(token, process.env.SECRET_KEY, (error, decoded) => {
+    if(error){
+      return res.status(401).send({error: true, message: 'Unauthorized Access'})
+    }
+    res.decoded = decoded;
+    next();
+  })
+
+}
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -27,6 +44,13 @@ async function run() {
     const serviceCollection = client.db("docAppointment").collection("services");
     const appointmentCollection = client.db("docAppointment").collection("appointments")
     const bookingCollection = client.db("docAppointment").collection("bookings")
+
+    //jwt
+    app.post('/jwt', (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.SECRET_KEY, {expiresIn: '1hr'})
+      res.send({token})
+    })
 
     //getting services data
     app.get('/services', async (req, res) => {
@@ -59,13 +83,23 @@ async function run() {
     })
 
     //getting data by specific email
-    app.get('/bookings', async (req, res) => {
+    app.get('/bookings', verifyJWT, async (req, res) => {
         let query = {};
+
         if(req.query.email){
             query = {email: req.query.email}
         }
+
         const result = await bookingCollection.find(query).toArray();
         res.send(result)
+    })
+
+    //deleting user bookings
+    app.delete('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await bookingCollection.deleteOne(query)
+      res.send(result);
     })
 
     // Send a ping to confirm a successful connection
